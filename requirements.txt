@@ -1,0 +1,12 @@
+Django==6.0.2
+django-allauth==65.15.0
+django-environ==0.13.0
+pillow==12.1.1
+psycopg2==2.9.11
+requests==2.33.1
+PyJWT==2.12.1
+cryptography==46.0.6
+djangorestframework==3.17.1
+django-filter==25.2
+djangorestframework-simplejwt==5.5.1
+drf-yasg==1.21.15
