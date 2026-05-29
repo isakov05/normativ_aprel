@@ -10,6 +10,7 @@ from tasks.serializers import TasksSerializer
 from rest_framework.filters import OrderingFilter, SearchFilter
 from django_filters.rest_framework import DjangoFilterBackend
 from .permission import IsOwnerOrReadOnly
+from .tasks import log_task_created
 
 @api_view(['GET'])
 def test_api(request):
@@ -30,7 +31,8 @@ class TaskViewSet(viewsets.ModelViewSet):
     filterset_fields = ['title']
 
     def perform_create(self, serializer):
-        serializer.save(author=self.request.user)
+        task = serializer.save(author=self.request.user)
+        log_task_created.delay(task.id, task.title)
 
 
 class RegisterAPIView(APIView):
