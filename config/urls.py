@@ -20,6 +20,7 @@ schema_view = get_schema_view(
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/', include('tasks.urls')),
+    path('', include('chat.urls')),
     path('api/token/', obtain_auth_token)
 ]
 urlpatterns+=[
