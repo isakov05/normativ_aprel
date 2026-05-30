@@ -5,12 +5,16 @@ from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticatedOrReadOnly
 from django.contrib.auth.models import User
 from django.contrib.auth import authenticate, login, logout
+from django.core.cache import cache
 from tasks.models import Tasks
 from tasks.serializers import TasksSerializer
 from rest_framework.filters import OrderingFilter, SearchFilter
 from django_filters.rest_framework import DjangoFilterBackend
 from .permission import IsOwnerOrReadOnly
 from .tasks import log_task_created
+
+TASK_LIST_VERSION_KEY = 'tasks_list_version'
+TASK_LIST_CACHE_TIMEOUT = 60
 
 @api_view(['GET'])
 def test_api(request):
@@ -30,9 +34,38 @@ class TaskViewSet(viewsets.ModelViewSet):
     ordering_fields = ['created_at', 'title']
     filterset_fields = ['title']
 
+    def _list_cache_key(self, request):
+        version = cache.get(TASK_LIST_VERSION_KEY, 1)
+        return f'tasks_list:{version}:{request.get_full_path()}'
+
+    def _invalidate_list_cache(self):
+        try:
+            cache.incr(TASK_LIST_VERSION_KEY)
+        except ValueError:
+            cache.set(TASK_LIST_VERSION_KEY, 2)
+
+    def list(self, request, *args, **kwargs):
+        cache_key = self._list_cache_key(request)
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return Response(cached)
+
+        response = super().list(request, *args, **kwargs)
+        cache.set(cache_key, response.data, TASK_LIST_CACHE_TIMEOUT)
+        return response
+
     def perform_create(self, serializer):
         task = serializer.save(author=self.request.user)
+        self._invalidate_list_cache()
         log_task_created.delay(task.id, task.title)
+
+    def perform_update(self, serializer):
+        serializer.save()
+        self._invalidate_list_cache()
+
+    def perform_destroy(self, instance):
+        instance.delete()
+        self._invalidate_list_cache()
 
 
 class RegisterAPIView(APIView):

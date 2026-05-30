@@ -1,4 +1,5 @@
 from django.contrib.auth.models import User
+from django.core.cache import cache
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
@@ -127,6 +128,7 @@ class TaskIntegrationTests(APITestCase):
 
 class TaskQueryOptimizationTests(APITestCase):
     def setUp(self):
+        cache.clear()
         for i in range(5):
             user = User.objects.create_user(username=f'user{i}', password='strongpass123')
             Tasks.objects.create(title=f'Task {i}', content='Some long enough content', author=user)
@@ -136,3 +138,51 @@ class TaskQueryOptimizationTests(APITestCase):
         with self.assertNumQueries(2):
             response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+
+class TaskThrottleTests(APITestCase):
+    def setUp(self):
+        cache.clear()
+
+    def test_anonymous_is_throttled_after_limit(self):
+        url = reverse('tasks-list')
+
+        for _ in range(10):
+            response = self.client.get(url)
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+
+class TaskCacheTests(APITestCase):
+    def setUp(self):
+        cache.clear()
+        self.user = User.objects.create_user(username='cacheuser', password='strongpass123')
+
+    def test_list_response_is_cached(self):
+        Tasks.objects.create(title='First', content='Long enough content', author=self.user)
+        url = reverse('tasks-list')
+
+        first = self.client.get(url)
+        self.assertEqual(first.data['count'], 1)
+
+        Tasks.objects.create(title='Second', content='Long enough content', author=self.user)
+        second = self.client.get(url)
+        self.assertEqual(second.data['count'], 1)
+
+    def test_cache_invalidated_after_create(self):
+        url = reverse('tasks-list')
+
+        self.client.get(url)
+
+        self.client.force_authenticate(user=self.user)
+        create = self.client.post(
+            url,
+            {'title': 'Fresh', 'content': 'Long enough content'},
+            format='json',
+        )
+        self.assertEqual(create.status_code, status.HTTP_201_CREATED)
+
+        after = self.client.get(url)
+        self.assertEqual(after.data['count'], 1)
